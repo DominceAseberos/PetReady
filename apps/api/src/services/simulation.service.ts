@@ -169,7 +169,7 @@ export async function getActiveSimulation(userId: string) {
   return rows[0] || null;
 }
 
-/** Mark a task as completed and score it based on response time. */
+/** Mark a task as completed and score it based on response time. Enforces time windows. */
 export async function completeTask(taskId: string, userId: string) {
   const { rows: tasks } = await db.query(
     `SELECT t.*, s.user_id FROM tasks t JOIN simulations s ON t.simulation_id = s.id
@@ -178,20 +178,72 @@ export async function completeTask(taskId: string, userId: string) {
   );
   if (tasks.length === 0) throw new NotFoundError('Task');
   if (tasks[0].user_id !== userId) throw new NotFoundError('Task');
-  if (tasks[0].completed_at) return tasks[0]; // Already done
+  if (tasks[0].completed_at) return { ...tasks[0], message: 'Already completed' };
+  if (tasks[0].missed) return { ...tasks[0], message: 'This task was already marked as missed' };
 
-  const responseTime = Date.now() - new Date(tasks[0].scheduled_at).getTime();
-  const score = Math.max(0, 10 - (responseTime / (1000 * 60 * 30)) * 5); // Lose points after 30min
+  const scheduledAt = new Date(tasks[0].scheduled_at).getTime();
+  const now = Date.now();
+  const WINDOW_BEFORE = 30 * 60 * 1000;  // Can complete 30 min early
+  const WINDOW_AFTER = 120 * 60 * 1000;  // 2 hour grace period after scheduled time
+
+  // Too early — task hasn't started yet
+  if (now < scheduledAt - WINDOW_BEFORE) {
+    return { error: true, message: `This task isn't available yet. Come back at ${new Date(scheduledAt - WINDOW_BEFORE).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` };
+  }
+
+  // Too late — auto-missed
+  if (now > scheduledAt + WINDOW_AFTER) {
+    await db.query('UPDATE tasks SET missed = TRUE WHERE id = $1', [taskId]);
+    return { ...tasks[0], missed: true, message: getConsequence(tasks[0].type, 'missed') };
+  }
+
+  // Within window — score based on response speed
+  const responseTime = now - scheduledAt;
+  // Perfect = 10, decays to 5 at 30min, 2 at 1hr, 0 at 2hr
+  const score = Math.max(0, Math.round((10 - (responseTime / (1000 * 60 * 30)) * 3) * 10) / 10);
 
   const { rows } = await db.query(
     `UPDATE tasks SET completed_at = NOW(), response_time_ms = $1, score = $2
      WHERE id = $3 RETURNING *`,
-    [Math.max(0, responseTime), Math.round(score * 10) / 10, taskId],
+    [Math.max(0, responseTime), score, taskId],
   );
-  return rows[0];
+
+  const feedback = getCompletionFeedback(tasks[0].type, responseTime);
+  return { ...rows[0], message: feedback };
 }
 
-/** Record a user's response to a simulation event and update expenses. */
+/** Get a consequence narrative for a missed task. */
+function getConsequence(taskType: string, _reason: string): string {
+  const consequences: Record<string, string> = {
+    feeding: "Your pet went hungry. They're pacing near their empty bowl and whining.",
+    walking: "Your dog hasn't been outside in hours. There's an accident on the floor.",
+    grooming: "The litter box is overflowing. Your cat started going outside the box.",
+    play: "Your pet is restless and anxious. They started chewing on furniture.",
+    training: "Without practice, your pet forgot yesterday's progress. Training takes consistency.",
+  };
+  return consequences[taskType] || "Your pet needed you, but you weren't there.";
+}
+
+/** Get positive feedback for completing a task on time. */
+function getCompletionFeedback(taskType: string, responseTimeMs: number): string {
+  const minutes = Math.round(responseTimeMs / (1000 * 60));
+  if (minutes <= 5) {
+    const quick: Record<string, string> = {
+      feeding: "Your pet ate happily! They wagged their tail seeing you prepare food.",
+      walking: "Great walk! Your dog is energized and content.",
+      grooming: "Clean and fresh. Your pet seems relieved.",
+      play: "So much fun! Your pet is tired and happy.",
+      training: "Excellent session! Your pet learned something new today.",
+    };
+    return quick[taskType] || "Done! Your pet appreciates the care.";
+  }
+  if (minutes <= 30) {
+    return "Completed. Your pet waited a bit but all is well.";
+  }
+  return "Done, but your pet was getting anxious waiting. Try to respond sooner next time.";
+}
+
+/** Record a user's response to a simulation event. Penalizes if response is after 30-minute window. */
 export async function respondToEvent(eventId: string, userId: string, choice: string) {
   const { rows: events } = await db.query(
     `SELECT e.*, s.user_id FROM events e JOIN simulations s ON e.simulation_id = s.id
@@ -200,26 +252,40 @@ export async function respondToEvent(eventId: string, userId: string, choice: st
   );
   if (events.length === 0) throw new NotFoundError('Event');
   if (events[0].user_id !== userId) throw new NotFoundError('Event');
+  if (events[0].responded_at) return { scoreImpact: 0, financialImpact: 0, explanation: 'Already responded to this event.' };
 
   const options = typeof events[0].options === 'string' ? JSON.parse(events[0].options) : events[0].options;
   const selected = options.find((o: { id: string }) => o.id === choice);
   if (!selected) throw new NotFoundError('Option');
 
   const responseTime = Date.now() - new Date(events[0].triggered_at).getTime();
+  const URGENCY_WINDOW = 30 * 60 * 1000; // 30 minutes
+
+  // Penalize late responses — reduce score by half if over 30 min
+  let finalScore = selected.score;
+  let lateMessage = '';
+  if (responseTime > URGENCY_WINDOW) {
+    finalScore = Math.round(selected.score * 0.5);
+    lateMessage = ' (Penalty: responded too slowly — in a real emergency, every minute counts)';
+  }
 
   await db.query(
     `UPDATE events SET user_response = $1, response_time_ms = $2, financial_impact = $3,
      score_impact = $4, explanation = $5, responded_at = NOW()
      WHERE id = $6`,
-    [choice, responseTime, selected.cost, selected.score, selected.explanation, eventId],
+    [choice, responseTime, selected.cost, finalScore, selected.explanation, eventId],
   );
 
-  // Update simulation expenses
   await db.query(
-    `UPDATE simulations SET total_expenses = total_expenses + $1
-     WHERE id = $2`,
+    `UPDATE simulations SET total_expenses = total_expenses + $1 WHERE id = $2`,
     [selected.cost, events[0].simulation_id],
   );
 
-  return { scoreImpact: selected.score, financialImpact: selected.cost, explanation: selected.explanation };
+  return {
+    scoreImpact: finalScore,
+    financialImpact: selected.cost,
+    explanation: selected.explanation + lateMessage,
+    wasLate: responseTime > URGENCY_WINDOW,
+    responseMinutes: Math.round(responseTime / (1000 * 60)),
+  };
 }
