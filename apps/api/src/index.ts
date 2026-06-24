@@ -4,6 +4,10 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import { errorHandler } from './middleware/error-handler.js';
 import { healthRouter } from './routes/health.js';
+import { authRouter } from './routes/auth.js';
+import { assessmentRouter } from './routes/assessments.js';
+import { simulationRouter } from './routes/simulations.js';
+import { resultsRouter } from './routes/results.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -27,6 +31,10 @@ if (process.env.NODE_ENV !== 'test') {
 
 // Routes
 app.use('/health', healthRouter);
+app.use('/v1/auth', authRouter);
+app.use('/v1/assessments', assessmentRouter);
+app.use('/v1/simulations', simulationRouter);
+app.use('/v1', resultsRouter);
 
 // Error handling (must be last)
 app.use(errorHandler);
