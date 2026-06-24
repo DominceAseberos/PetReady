@@ -41,8 +41,9 @@ simulationRouter.get('/active', authenticate, async (req, res, next) => {
 simulationRouter.get('/:id/tasks', authenticate, async (req, res, next) => {
   try {
     const { rows } = await db.query(
-      `SELECT * FROM tasks WHERE simulation_id = $1 ORDER BY scheduled_at`,
-      [req.params.id],
+      `SELECT t.* FROM tasks t JOIN simulations s ON t.simulation_id = s.id
+       WHERE t.simulation_id = $1 AND s.user_id = $2 ORDER BY t.scheduled_at`,
+      [req.params.id, req.userId],
     );
     res.json({ tasks: rows });
   } catch (err) {
@@ -62,8 +63,9 @@ simulationRouter.patch('/tasks/:id', authenticate, async (req, res, next) => {
 simulationRouter.get('/:id/events', authenticate, async (req, res, next) => {
   try {
     const { rows } = await db.query(
-      `SELECT * FROM events WHERE simulation_id = $1 ORDER BY triggered_at`,
-      [req.params.id],
+      `SELECT e.* FROM events e JOIN simulations s ON e.simulation_id = s.id
+       WHERE e.simulation_id = $1 AND s.user_id = $2 ORDER BY e.triggered_at`,
+      [req.params.id, req.userId],
     );
     res.json({ events: rows });
   } catch (err) {

@@ -1,8 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { UnauthorizedError } from './error-handler.js';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-prod';
+import { config } from '../config.js';
 
 export interface AuthPayload {
   userId: string;
@@ -26,7 +25,7 @@ export function authenticate(req: Request, _res: Response, next: NextFunction) {
 
   const token = header.slice(7);
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as AuthPayload;
+    const payload = jwt.verify(token, config.jwt.secret) as AuthPayload;
     req.userId = payload.userId;
     req.userEmail = payload.email;
     next();
@@ -35,6 +34,7 @@ export function authenticate(req: Request, _res: Response, next: NextFunction) {
   }
 }
 
+/** Sign a JWT token with the configured secret. */
 export function signToken(payload: AuthPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign(payload, config.jwt.secret, { expiresIn: config.jwt.expiresIn });
 }

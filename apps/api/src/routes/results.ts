@@ -8,6 +8,12 @@ export const resultsRouter = Router();
 // Complete simulation and calculate score
 resultsRouter.post('/simulations/:id/complete', authenticate, async (req, res, next) => {
   try {
+    // Verify ownership
+    const { rows: sims } = await db.query(
+      'SELECT id FROM simulations WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.userId],
+    );
+    if (sims.length === 0) return res.status(404).json({ error: { code: 'NOT_FOUND' } });
     const result = await calculateScore(req.params.id, req.userId!);
     res.status(201).json(result);
   } catch (err) {

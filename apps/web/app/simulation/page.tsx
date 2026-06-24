@@ -20,36 +20,53 @@ export default function SimulationPage() {
   const [loading, setLoading] = useState(true);
 
   const fetchData = async () => {
-    const res = await fetch(`${API}/v1/simulations/active`, { headers: getHeaders() });
-    if (!res.ok) { setLoading(false); return; }
-    const simData = await res.json();
-    setSim(simData);
+    try {
+      const res = await fetch(`${API}/v1/simulations/active`, { headers: getHeaders() });
+      if (!res.ok) { setLoading(false); return; }
+      const simData = await res.json();
+      setSim(simData);
 
-    const [tasksRes, eventsRes] = await Promise.all([
-      fetch(`${API}/v1/simulations/${simData.id}/tasks`, { headers: getHeaders() }),
-      fetch(`${API}/v1/simulations/${simData.id}/events`, { headers: getHeaders() }),
-    ]);
-    if (tasksRes.ok) { const d = await tasksRes.json(); setTasks(d.tasks); }
-    if (eventsRes.ok) { const d = await eventsRes.json(); setEvents(d.events); }
-    setLoading(false);
+      const [tasksRes, eventsRes] = await Promise.all([
+        fetch(`${API}/v1/simulations/${simData.id}/tasks`, { headers: getHeaders() }),
+        fetch(`${API}/v1/simulations/${simData.id}/events`, { headers: getHeaders() }),
+      ]);
+      if (tasksRes.ok) { const d = await tasksRes.json(); setTasks(d.tasks); }
+      if (eventsRes.ok) { const d = await eventsRes.json(); setEvents(d.events); }
+    } catch (err) {
+      console.error('Failed to load simulation:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { fetchData(); }, []);
 
   const completeTask = async (taskId: string) => {
-    await fetch(`${API}/v1/simulations/tasks/${taskId}`, { method: 'PATCH', headers: getHeaders(), body: JSON.stringify({ completed: true }) });
-    fetchData();
+    try {
+      await fetch(`${API}/v1/simulations/tasks/${taskId}`, { method: 'PATCH', headers: getHeaders(), body: JSON.stringify({ completed: true }) });
+      fetchData();
+    } catch (err) {
+      console.error('Failed to complete task:', err);
+    }
   };
 
   const respondEvent = async (eventId: string, choice: string) => {
-    await fetch(`${API}/v1/simulations/events/${eventId}/respond`, { method: 'POST', headers: getHeaders(), body: JSON.stringify({ choice }) });
-    fetchData();
+    try {
+      await fetch(`${API}/v1/simulations/events/${eventId}/respond`, { method: 'POST', headers: getHeaders(), body: JSON.stringify({ choice }) });
+      fetchData();
+    } catch (err) {
+      console.error('Failed to respond to event:', err);
+    }
   };
 
   const completeSim = async () => {
     if (!sim) return;
-    const res = await fetch(`${API}/v1/simulations/${sim.id}/complete`, { method: 'POST', headers: getHeaders() });
-    if (res.ok) window.location.href = `/results?sim=${sim.id}`;
+    try {
+      const res = await fetch(`${API}/v1/simulations/${sim.id}/complete`, { method: 'POST', headers: getHeaders() });
+      if (res.ok) window.location.href = `/results?sim=${sim.id}`;
+    } catch (err) {
+      console.error('Failed to complete simulation:', err);
+    }
   };
 
   if (loading) return <div className="flex h-screen items-center justify-center"><p className="text-gray-500">Loading simulation...</p></div>;

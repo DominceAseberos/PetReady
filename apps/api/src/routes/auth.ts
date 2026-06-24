@@ -79,8 +79,9 @@ authRouter.get('/me', async (req, res, next) => {
     const header = req.headers.authorization;
     if (!header?.startsWith('Bearer ')) return res.status(401).json({ error: { code: 'UNAUTHORIZED' } });
 
-    const jwt = await import('jsonwebtoken');
-    const payload = jwt.default.verify(header.slice(7), process.env.JWT_SECRET || 'dev-secret-change-in-prod') as { userId: string };
+    const { config } = await import('../config.js');
+    const jwtMod = await import('jsonwebtoken');
+    const payload = jwtMod.default.verify(header.slice(7), config.jwt.secret) as { userId: string };
 
     const { rows } = await db.query(
       'SELECT id, email, name, timezone FROM users WHERE id = $1',

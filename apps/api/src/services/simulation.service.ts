@@ -1,3 +1,4 @@
+import pg from 'pg';
 import { db } from '../db/connection.js';
 import { ConflictError, NotFoundError } from '../middleware/error-handler.js';
 
@@ -48,6 +49,7 @@ function generateTaskSchedule(petType: string, durationDays: number, startDate: 
   return tasks;
 }
 
+/** Create a new simulation for a user with scheduled tasks and random events. */
 export async function createSimulation(userId: string, input: CreateSimInput) {
   // Check no active simulation
   const { rows: active } = await db.query(
@@ -67,32 +69,36 @@ export async function createSimulation(userId: string, input: CreateSimInput) {
   const endDate = new Date(startDate);
   endDate.setDate(endDate.getDate() + input.durationDays);
 
-  // Create simulation
-  const { rows: sims } = await db.query(
-    `INSERT INTO simulations (user_id, assessment_id, pet_type, pet_size, duration_days, status, budget_stated, start_date, end_date)
-     VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $8)
-     RETURNING *`,
-    [userId, input.assessmentId, input.petType, input.petSize || null, input.durationDays, budget, startDate, endDate],
-  );
-  const simulation = sims[0];
-
-  // Generate and insert tasks
-  const tasks = generateTaskSchedule(input.petType, input.durationDays, startDate, 'UTC');
-  for (const task of tasks) {
-    await db.query(
-      `INSERT INTO tasks (simulation_id, type, title, description, day_number, scheduled_at)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [simulation.id, task.type, task.title, task.description, task.dayNumber, task.scheduledAt],
+  // Create simulation + tasks + events in a single transaction
+  const simulation = await db.transaction(async (client) => {
+    const { rows: sims } = await client.query(
+      `INSERT INTO simulations (user_id, assessment_id, pet_type, pet_size, duration_days, status, budget_stated, start_date, end_date)
+       VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $8)
+       RETURNING *`,
+      [userId, input.assessmentId, input.petType, input.petSize || null, input.durationDays, budget, startDate, endDate],
     );
-  }
+    const sim = sims[0];
 
-  // Generate random events (1-2 per simulation)
-  await generateEvents(simulation.id, input.petType, input.durationDays, startDate);
+    // Generate and insert tasks
+    const tasks = generateTaskSchedule(input.petType, input.durationDays, startDate, 'UTC');
+    for (const task of tasks) {
+      await client.query(
+        `INSERT INTO tasks (simulation_id, type, title, description, day_number, scheduled_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [sim.id, task.type, task.title, task.description, task.dayNumber, task.scheduledAt],
+      );
+    }
+
+    // Generate random events (1-2 per simulation)
+    await generateEventsInTx(client, sim.id, input.petType, input.durationDays, startDate);
+
+    return sim;
+  });
 
   return simulation;
 }
 
-async function generateEvents(simulationId: string, petType: string, days: number, startDate: Date) {
+async function generateEventsInTx(client: pg.PoolClient, simulationId: string, petType: string, days: number, startDate: Date) {
   const eventPool = [
     {
       type: 'emergency_vet', severity: 'high',
@@ -142,7 +148,7 @@ async function generateEvents(simulationId: string, petType: string, days: numbe
     triggerDate.setDate(triggerDate.getDate() + Math.floor(Math.random() * days));
     triggerDate.setHours(10 + Math.floor(Math.random() * 8), Math.floor(Math.random() * 60), 0, 0);
 
-    await db.query(
+    await client.query(
       `INSERT INTO events (simulation_id, type, severity, scenario, options, triggered_at)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [simulationId, evt.type, evt.severity, evt.scenario, evt.options, triggerDate],
@@ -150,6 +156,7 @@ async function generateEvents(simulationId: string, petType: string, days: numbe
   }
 }
 
+/** Get the currently active simulation for a user with task progress stats. */
 export async function getActiveSimulation(userId: string) {
   const { rows } = await db.query(
     `SELECT s.*, 
@@ -162,6 +169,7 @@ export async function getActiveSimulation(userId: string) {
   return rows[0] || null;
 }
 
+/** Mark a task as completed and score it based on response time. */
 export async function completeTask(taskId: string, userId: string) {
   const { rows: tasks } = await db.query(
     `SELECT t.*, s.user_id FROM tasks t JOIN simulations s ON t.simulation_id = s.id
@@ -183,6 +191,7 @@ export async function completeTask(taskId: string, userId: string) {
   return rows[0];
 }
 
+/** Record a user's response to a simulation event and update expenses. */
 export async function respondToEvent(eventId: string, userId: string, choice: string) {
   const { rows: events } = await db.query(
     `SELECT e.*, s.user_id FROM events e JOIN simulations s ON e.simulation_id = s.id

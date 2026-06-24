@@ -58,20 +58,30 @@ export default function QuizPage() {
     setAnswers((prev) => ({ ...prev, [q.key]: value }));
   };
 
-  const canNext = answers[q.key] !== undefined && answers[q.key] !== '';
+  const canNext = answers[q.key] !== undefined && answers[q.key] !== '' && answers[q.key] !== null;
 
   const handleSubmit = async () => {
-    const payload = { responses: { ...answers, existing_pets: answers.existing_pets === 'none' ? [] : [answers.existing_pets] } };
-    const token = localStorage.getItem('token');
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/v1/assessments`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(payload),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setResult(data);
-      setSubmitted(true);
+    // Fix existing_pets to always be an array
+    const existingPets = answers.existing_pets;
+    const petsArray = existingPets === 'none' || !existingPets ? [] : [existingPets as string];
+    const payload = { responses: { ...answers, existing_pets: petsArray } };
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/v1/assessments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setResult(data);
+        setSubmitted(true);
+      } else {
+        const err = await res.json();
+        alert(err.error?.message || 'Submission failed. Please try again.');
+      }
+    } catch {
+      alert('Network error. Please check your connection.');
     }
   };
 
