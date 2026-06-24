@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { PawPrint, Share2, CheckCircle2 } from 'lucide-react';
 
@@ -32,7 +32,15 @@ function ScoreBar({ label, score }: { label: string; score: number }) {
   );
 }
 
-export default function ResultsPage() {
+export default function ResultsPageWrapper() {
+  return (
+    <Suspense fallback={<div className="flex h-screen items-center justify-center"><p className="text-gray-500">Loading...</p></div>}>
+      <ResultsPage />
+    </Suspense>
+  );
+}
+
+function ResultsPage() {
   const params = useSearchParams();
   const simId = params.get('sim');
   const [result, setResult] = useState<Result | null>(null);

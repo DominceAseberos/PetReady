@@ -1,0 +1,9 @@
+[build]
+builder = "nixpacks"
+buildCommand = "pnpm install && pnpm --filter @petready/api build"
+
+[deploy]
+startCommand = "pnpm --filter @petready/api start"
+healthcheckPath = "/health"
+healthcheckTimeout = 5
+restartPolicyType = "on_failure"
