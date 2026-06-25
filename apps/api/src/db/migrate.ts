@@ -1,8 +1,11 @@
 import { db } from './connection.js';
 import { readFileSync, readdirSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
-const MIGRATIONS_DIR = join(process.cwd(), 'apps', 'api', 'src', 'db', 'migrations');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const MIGRATIONS_DIR = join(__dirname, 'migrations');
 
 async function migrate() {
   // Create migrations tracking table

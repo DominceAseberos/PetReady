@@ -19,20 +19,36 @@ export default function LoginPage() {
     setLoading(true);
 
     const endpoint = mode === 'register' ? '/v1/auth/register' : '/v1/auth/login';
-    const body = mode === 'register' ? { email, password, name, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } : { email, password };
+    const body = mode === 'register'
+      ? { email, password, name, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+      : { email, password };
 
-    const res = await fetch(`${API}${endpoint}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
+    try {
+      const res = await fetch(`${API}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
 
-    const data = await res.json();
-    setLoading(false);
+      const data = await res.json();
 
-    if (!res.ok) { setError(data.error?.message || 'Something went wrong'); return; }
+      if (!res.ok) {
+        setError(data.error?.message || 'Something went wrong');
+        setLoading(false);
+        return;
+      }
 
-    localStorage.setItem('token', data.token);
-    localStorage.setItem('user', JSON.stringify(data.user));
-    window.location.href = '/quiz';
+      // Store token in localStorage AND cookie (middleware reads cookie)
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      document.cookie = `token=${data.token}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`;
+
+      // Redirect to quiz
+      window.location.href = '/quiz';
+    } catch (err) {
+      setError('Cannot connect to server. Is the API running on port 3001?');
+      setLoading(false);
+    }
   };
 
   return (
@@ -60,10 +76,14 @@ export default function LoginPage() {
           <input type="password" placeholder="Password (min 8 characters)" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8}
             className="w-full rounded-md border border-gray-200 px-4 py-3 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500" data-testid="password-input" />
 
-          {error && <p className="text-sm text-red-600" data-testid="auth-error">{error}</p>}
+          {error && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2" data-testid="auth-error">
+              {error}
+            </p>
+          )}
 
           <button type="submit" disabled={loading}
-            className="w-full rounded-md bg-primary-600 px-4 py-3 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50" data-testid="auth-submit">
+            className="w-full rounded-md bg-primary-600 px-4 py-3 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50 transition-colors" data-testid="auth-submit">
             {loading ? 'Please wait...' : mode === 'register' ? 'Create account' : 'Sign in'}
           </button>
         </form>

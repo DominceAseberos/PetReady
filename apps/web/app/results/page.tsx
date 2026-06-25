@@ -45,21 +45,43 @@ function ResultsPage() {
   const simId = params.get('sim');
   const [result, setResult] = useState<Result | null>(null);
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!simId) return;
     const token = localStorage.getItem('token');
     fetch(`${API}/v1/simulations/${simId}/results`, {
       headers: { Authorization: `Bearer ${token}` },
-    }).then((r) => r.ok ? r.json() : null).then(setResult);
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error('Failed to load results');
+        return r.json();
+      })
+      .then(setResult)
+      .catch((err) => setError(err.message || 'Network error. Check your connection.'));
   }, [simId]);
 
+  if (error) return <div className="flex h-screen items-center justify-center"><p className="text-red-600 bg-red-50 px-4 py-3 rounded-md">{error}</p></div>;
   if (!result) return <div className="flex h-screen items-center justify-center"><p className="text-gray-500">Loading results...</p></div>;
 
   const labelInfo = LABELS[result.score_label] || LABELS.needs_preparation;
 
   const shareUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/share/${result.share_token}`;
-  const handleShare = () => { navigator.clipboard.writeText(shareUrl); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  const handleShare = () => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(shareUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+    } else {
+      // Fallback for older browsers
+      const input = document.createElement('input');
+      input.value = shareUrl;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-12">

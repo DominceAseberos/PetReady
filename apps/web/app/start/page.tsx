@@ -45,7 +45,8 @@ export default function SimulationStartPage() {
           setPetType(data.recommended_pet_type || 'dog');
           setPetSize(data.recommended_pet_size || 'medium');
         }
-      });
+      })
+      .catch(() => setError('Cannot connect to server. Is the API running?'));
     // Check notification permission
     if ('Notification' in window) {
       setNotifGranted(Notification.permission === 'granted');
